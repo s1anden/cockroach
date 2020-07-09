@@ -11,6 +11,7 @@
 package server
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -151,6 +152,19 @@ func (s *adminServer) RegisterGateway(
 			return
 		}
 		s.getStatementBundle(ctx, id, w)
+	})
+
+	// Register the /_admin/v1/debugzip endpoint, which serves debug.zip files
+	debugZipPattern := gwruntime.MustPattern(gwruntime.NewPattern(
+		1, /* version */
+		[]int{int(gwutil.OpLitPush), 0, int(gwutil.OpLitPush), 1, int(gwutil.OpLitPush), 2},
+		[]string{"_admin", "v1", "debugzip"},
+		"", /* verb */
+	))
+	mux.Handle("GET", debugZipPattern, func(
+		w http.ResponseWriter, req *http.Request, pathParams map[string]string,
+	) {
+		s.getDebugZip(ctx, w)
 	})
 
 	// Register the endpoints defined in the proto.
@@ -1629,6 +1643,35 @@ func (s *adminServer) getStatementBundle(ctx context.Context, id int64, w http.R
 	)
 
 	_, _ = io.Copy(w, &bundle)
+}
+
+// getDebugZip retrieves the debug.zip for the cluster and writes it out as an attachment
+func (s *adminServer) getDebugZip(ctx context.Context, w http.ResponseWriter) {
+	buf := new(bytes.Buffer)
+	writer := zip.NewWriter(buf)
+
+	// TODO(s1anden): Replace with actual debug.zip when available
+	f, err := writer.Create("sometext.txt")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	_, err = f.Write([]byte("blah blah"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Disposition", "attachment; filename=debug.zip")
+
+	err = writer.Close()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	_, _ = io.Copy(w, buf)
 }
 
 // DecommissionStatus returns the DecommissionStatus for all or the given nodes.
